@@ -423,25 +423,25 @@ def fetch_calendar_events(ics_urls_env: str):
             print(f"[WARN] Not an ICS (Content-Type={ctype!r}): {url}")
             continue
 
-    try:
-        cal = Calendar(resp.text)
-        total, kept = 0, 0
-        for ev in cal.events:
-            total += 1
-            start = getattr(ev, "begin", None)
-            if not start:
-                continue
-            dt = start.datetime.replace(tzinfo=start.tzinfo or tz.UTC)
-            if now <= dt <= until:
-                title = _norm(getattr(ev, "name", "") or "")
-                desc  = _norm(getattr(ev, "description", "") or "")
-                blob  = f"{title} {desc}".lower()
-                if any(k.lower() in blob for k in CALENDAR_KEYWORDS):
-                    events.append((dt, title or "(untitled)", desc))
-                    kept += 1
-        print(f"[INFO] Calendar scanned: {url} | events={total} | matched={kept}")
-    except Exception as ex:
-        print(f"[WARN] Calendar parse failed for {url}: {ex}")
+        try:
+            cal = Calendar(resp.text)
+            total, kept = 0, 0
+            for ev in cal.events:
+                total += 1
+                start = getattr(ev, "begin", None)
+                if not start:
+                    continue
+                dt = start.datetime.replace(tzinfo=start.tzinfo or tz.UTC)
+                if now <= dt <= until:
+                    title = _norm(getattr(ev, "name", "") or "")
+                    desc  = _norm(getattr(ev, "description", "") or "")
+                    blob  = f"{title} {desc}".lower()
+                    if any(k.lower() in blob for k in CALENDAR_KEYWORDS):
+                        events.append((dt, title or "(untitled)", desc))
+                        kept += 1
+            print(f"[INFO] Calendar scanned: {url} | events={total} | matched={kept}")
+        except Exception as ex:
+            print(f"[WARN] Calendar parse failed for {url}: {ex}")
 
     events.sort(key=lambda x: x[0])
     return events[:20]
@@ -758,6 +758,10 @@ if __name__ == "__main__":
     if datetime.utcnow().weekday() == 6:
         print("[*] Weekly deep dive…")
         weekly_deep_dive = summarize_deep_dive(pick_weekly_deep_dive(research_summaries))
+
+    print("[*] Fetching calendar…")
+    calendar_events = fetch_calendar_events(CALENDAR_ICS_URLS)
+    print(f"[*] Calendar events found: {len(calendar_events)}")
 
     print("[*] Building daily overview…")
     overview = overall_summary(summaries, hot_list)
