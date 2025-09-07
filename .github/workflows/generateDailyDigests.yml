@@ -18,7 +18,7 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r quant-digest/requirements.txt
 
       - name: Run news digest
         env:
@@ -27,7 +27,7 @@ jobs:
           EMAIL: ${{ secrets.EMAIL }}
           PASSWORD: ${{ secrets.PASSWORD }}
         run: python quant-digest/news_digest.py
-        
+
       - name: Commit digest
         run: |
           git config --global user.name "Linus-Github-Actions"
