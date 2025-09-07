@@ -69,7 +69,7 @@ def summarize_articles(articles):
         chat = client.chat.completions.create(
             model="gpt-4.1-mini",
             messages=[
-                {"role": "system", "content": "Summarize this financial news for a quant engineer in training. Focus on quant/market-relevant details, explain key terms briefly. Then classify if this should go to a 'HOT LIST' of must-know news (yes/no)."},
+                {"role": "system", "content": "Summarize this financial news in clear language. Focus only on quant- and market-relevant details. Briefly explain key terms if needed. Then decide if this belongs to a 'Hot List' of must-know items (output only 'HOT LIST=Yes' or 'HOT LIST=No'). Do not label the article itself as 'for a quant engineer'. Just summarize naturally."},
                 {"role": "user", "content": content},
             ],
             max_tokens=250,
@@ -91,7 +91,7 @@ def overall_summary(summaries):
     chat = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-            {"role": "system", "content": "You are a financial analyst creating a quant daily briefing."},
+            {"role": "system", "content": "Here are today's article summaries. Write:1. ~200 word overview of the day’s most important financial and market news. 2. A concise bullet list of key takeaways. 3. A short 'Key Terms' glossary with definitions of important finance/quant terms mentioned.Avoid repetition of article text. Focus on clarity and usefulness."},
             {"role": "user", "content": f"Here are today's article summaries:\n{combined}\n\nProvide:\n1. A 200-word overall summary of today's markets and quant-relevant news.\n2. A bullet list of top quant takeaways.\n3. A 'Key Terms' section with important financial/quant terms."}
         ],
         max_tokens=500,
