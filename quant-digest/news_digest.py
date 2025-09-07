@@ -23,7 +23,6 @@ from email.mime.base import MIMEBase
 from email import encoders
 from dotenv import load_dotenv
 
-# Optional lanes
 try:
     from ics import Calendar
     from dateutil import tz
@@ -67,34 +66,38 @@ RSS_FEEDS = [
 ]
 
 # Research feeds (reliable, low-flake)
+# Research feeds (mix of academic + practitioner). All are RSS/Atom.
 RESEARCH_FEEDS = [
-    # arXiv (quant finance) — low volume day-to-day, still worth keeping
+    # arXiv (quant finance)
     "https://export.arxiv.org/rss/q-fin",
     "https://export.arxiv.org/rss/q-fin.TR",
     "https://export.arxiv.org/rss/q-fin.ST",
 
-    # NBER weekly “new this week”
-    "https://back.nber.org/rss/new.xml",
+    # BIS research & Central Bank Research Hub
+    "https://www.bis.org/doclist/bis_fsi_publs.rss",
+    "https://www.bis.org/doclist/reshub_papers.rss",
 
-    # Federal Reserve Board working papers
-    "https://www.federalreserve.gov/feeds/feds.xml",   # FEDS
-    "https://www.federalreserve.gov/feeds/ifdp.xml",   # IFDP
-
-    # CEPR discussion papers
+    # CEPR Discussion Papers
     "https://cepr.org/rss/discussion-paper",
 
-    # BIS research feeds (both are useful)
-    "https://www.bis.org/doclist/bis_fsi_publs.rss",   # BIS/FSI research papers
-    "https://www.bis.org/doclist/reshub_papers.rss",   # Central Bank Research Hub (aggregated)
+    # Fed Board working papers
+    "https://www.federalreserve.gov/feeds/working_papers.xml",
+    "https://www.federalreserve.gov/feeds/feds.xml",
+    "https://www.federalreserve.gov/feeds/ifdp.xml",
+
+    # NBER (if it ever looks empty that day, that’s normal)
+    "https://www.nber.org/rss/new.xml",
 ]
 
-# Practitioner blogs with good summaries (WordPress-native RSS)
+# Practitioner/quant houses with working RSS
 RESEARCH_EXTRA_FEEDS = [
+    "https://www.man.com/maninstitute/rss.xml",
     "https://alphaarchitect.com/feed/",
     "https://quantocracy.com/feed/",
 ]
 
-MAX_RESEARCH_PER_FEED = 5
+
+MAX_RESEARCH_PER_FEED = 10
 
 # Calendar settings
 CALENDAR_LOOKAHEAD_DAYS = 7
@@ -105,7 +108,7 @@ CALENDAR_KEYWORDS = [
 
 # Research cadence toggles
 RUN_RESEARCH = os.getenv("RUN_RESEARCH", "weekly").lower()  # "weekly", "always", "off"
-RESEARCH_DAY_UTC = int(os.getenv("RESEARCH_DAY_UTC", "6"))  # 0=Mon ... 6=Sun
+RESEARCH_DAY_UTC = 6  # 0=Mon ... 6=Sun
 FORCE_RESEARCH = os.getenv("FORCE_RESEARCH", "").lower() in ("1", "true", "yes")
 
 # Per-feed caps (more generous on weekly)
