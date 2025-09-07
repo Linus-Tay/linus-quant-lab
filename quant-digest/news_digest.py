@@ -41,8 +41,7 @@ EMAIL = os.getenv("EMAIL", "").strip()
 PASSWORD = os.getenv("PASSWORD", "").strip()
 
 # Optional calendar feeds (comma-separated .ics URLs). If empty, calendar lane skips.
-CALENDAR_ICS_URLS = ["https://www.econoday.com/ics/Econoday_Calendar.ics", "https://tradingeconomics.com/calendar/ics/united-states"]
-
+CALENDAR_ICS_URLS = "https://www.econoday.com/ics/Econoday_Calendar.ics,https://tradingeconomics.com/calendar/ics/united-states"
 SUMMARY_MODEL = "gpt-4.1-mini"     # cheap & capable; you can swap to "gpt-4o-mini"
 SUMMARY_MAX_TOKENS = 400
 OVERVIEW_MAX_TOKENS = 600
