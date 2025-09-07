@@ -2,7 +2,7 @@ name: Quant Digest
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "0 23 * * *"
   workflow_dispatch: # manual trigger
 
 permissions:
