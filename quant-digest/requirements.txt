@@ -1,5 +1,5 @@
-openai
-reportlab
-requests
-feedparser
-python-dotenv
+openai>=1.40.0
+requests>=2.32.3
+feedparser>=6.0.11
+reportlab>=4.2.4
+python-dotenv>=1.0.1
