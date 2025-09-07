@@ -28,22 +28,23 @@ This lab is split into multiple explorations:
 
 ## 📰 Quant Digest
 
-The **Quant Digest** runs daily at **07:00 SGT** (scheduled via GitHub Actions at `23:00 UTC`).
+The **Quant Digest** runs daily at **07:00 SGT** (scheduled via GitHub Actions at **23:00 UTC**).
 
 ### What it does
-1. **Fetches news** from NewsAPI and RSS (CNBC, Reuters, Yahoo Finance, FT Alphaville).
-2. **Summarizes** with *GPT-4.1-mini* using quant-aware prompts.
+1. **Fetches news** from NewsAPI + RSS (CNBC, Reuters, Yahoo Finance, FT Alphaville).
+2. **Summarizes** with *GPT-4.1-mini* using quant-aware prompts (focus on data, flows, policy, positioning).
 3. Builds a polished **PDF** with:
-   - **📊 Daily Overview** (macro tone, asset classes).
-   - **🔥 Hot List** (top items only).
-   - **📰 Articles** (no duplicates with Hot List).
-   - **🤖 AI & Finance** (industry/ML in markets).
-   - **📑 Research Highlights** (arXiv + optional AQR / Man / SSRN).
-   - **🗓 Macro Calendar (7 days)** (optional; via ICS feeds).
-   - **📘 Weekly Deep Dive** (Sundays: 1 paper explained in 150–250 words).
-   - **📚 Quant Keywords & Mini-Glossary** (plain-English terms).
-4. Uploads the PDF to the repo and as a workflow artifact. Emails a copy to me.
+   - **📊 Daily Overview** (macro tone by asset class).
+   - **🔥 Hot List** (flagged must-reads).
+   - **📰 Articles** (auto-deduped vs Hot List).
+   - **🤖 AI & Finance** (ML/AI news relevant to markets).
+   - **📑 Research Highlights** (arXiv q-fin, BIS/CEPR/Fed/NBER + Man Institute / Alpha Architect / Quantocracy).
+   - **🗓 Macro Calendar (next 7 days)** (optional; from ICS feeds).
+   - **📘 Weekly Deep Dive** (Sundays UTC: 1 paper in 150–250 words).
+   - **📚 Quant Keywords & Mini-Glossary** (plain-English one-liners with a small “core” fallback).
+4. **Outputs** the PDF to `quant-digest/GeneratedDigests/`, commits it (if changed), uploads as an artifact, and optionally **emails** it to you.
 
-### Configure
-Create `.env` locally or add **GitHub Secrets** (same names):
+### Configuration
+Set as repo **secrets** or local **env vars**:
+
 

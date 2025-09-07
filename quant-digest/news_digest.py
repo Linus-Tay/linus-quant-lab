@@ -38,13 +38,14 @@ NEWS_API_KEY = os.getenv("NEWS_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 EMAIL = os.getenv("EMAIL", "").strip()
 PASSWORD = os.getenv("PASSWORD", "").strip()
+RESEARCH_TOP_N = int(os.getenv("RESEARCH_TOP_N", "10"))
 
 # Optional calendar feeds (comma-separated .ics URLs). If empty, calendar lane skips.
 CALENDAR_ICS_URLS = "https://www.bls.gov/schedule/news_release/bls.ics,https://tradingeconomics.com/calendar/ics/united-states"
 SUMMARY_MODEL = "gpt-4.1-mini"     # cheap & capable; you can swap to "gpt-4o-mini"
 SUMMARY_MAX_TOKENS = 400
 OVERVIEW_MAX_TOKENS = 600
-GLOSSARY_MAX_TOKENS = 500
+GLOSSARY_MAX_TOKENS = 900
 OPENAI_TEMP = 0.2
 
 REQUEST_TIMEOUT = 15
@@ -97,8 +98,6 @@ RESEARCH_EXTRA_FEEDS = [
 ]
 
 
-MAX_RESEARCH_PER_FEED = 10
-
 # Calendar settings
 CALENDAR_LOOKAHEAD_DAYS = 7
 CALENDAR_KEYWORDS = [
@@ -119,6 +118,19 @@ MAX_RESEARCH_PER_FEED_WEEKLY = int(os.getenv("MAX_RESEARCH_PER_FEED_WEEKLY", "15
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
 # ─────────────────────────────────────────────────────────────────────────────
+def _ts_from_entry(e):
+    try:
+        if getattr(e, "published_parsed", None):
+            return int(time.mktime(e.published_parsed))
+        if getattr(e, "updated_parsed", None):
+            return int(time.mktime(e.updated_parsed))
+    except Exception:
+        pass
+    return 0  # fallback if feed has no dates
+
+def select_latest_research(items, top_n):
+    return sorted(items, key=lambda x: x.get("ts", 0), reverse=True)[:max(0, top_n)]
+
 def _safe_get(url: str, params=None):
     try:
         return requests.get(url, params=params or {}, timeout=REQUEST_TIMEOUT)
@@ -260,11 +272,12 @@ def fetch_research(max_per_feed: int):
             parsed = feedparser.parse(feed)
             take = max_per_feed if max_per_feed > 0 else len(parsed.entries)
             for e in parsed.entries[:take]:
-                items.append({
+               items.append({
                     "title": getattr(e, "title", "") or "(untitled)",
                     "desc": getattr(e, "summary", "") or "",
                     "url": getattr(e, "link", "") or "",
                     "source": (parsed.feed.get("title") if hasattr(parsed, "feed") else "RSS"),
+                    "ts": _ts_from_entry(e),
                 })
         except Exception as ex:
             print(f"[WARN] Research RSS failed: {feed} — {ex}")
@@ -413,7 +426,7 @@ def fetch_calendar_events(ics_urls_env: str):
 
     events = []
     for url in urls:
-        resp = _safe_get(url)
+        resp = _safe_get(url, params={})
         if not (resp and resp.ok):
             print(f"[WARN] Calendar fetch failed (HTTP): {url}")
             continue
@@ -449,7 +462,7 @@ def fetch_calendar_events(ics_urls_env: str):
 # ─────────────────────────────────────────────────────────────────────────────
 # Keywords / Mini-Glossary
 # ─────────────────────────────────────────────────────────────────────────────
-def extract_glossary(summaries, hot_list, ai_summaries, max_terms=15):
+def extract_glossary(summaries, hot_list, ai_summaries, max_terms=25):
     """Return list[(term, explanation)] as one-liners."""
     if not OPENAI_API_KEY:
         return []
@@ -463,10 +476,11 @@ def extract_glossary(summaries, hot_list, ai_summaries, max_terms=15):
         return "\n".join(lines)
 
     source_text = (
-        "HOT:\n" + pack(hot_list, 8) + "\n\n" +
-        "ARTICLES:\n" + pack(summaries, 12) + "\n\n" +
-        "AI:\n" + pack(ai_summaries, 6)
+        "HOT:\n" + pack(hot_list, 12) + "\n\n" +
+        "ARTICLES:\n" + pack(summaries, 20) + "\n\n" +
+        "AI:\n" + pack(ai_summaries, 10)
     )
+
 
     sys_prompt = (
         "From the provided market/quant summaries, extract the most relevant quantitative finance terms "
@@ -519,7 +533,7 @@ CORE_GLOSSARY = {
 
 def ensure_core_glossary(glossary, min_total=12):
     """
-    If fewer than min_total terms, top up with CORE_GLOSSARY entries not already present.
+    If fewer than min_total terms, top up with CORE_GLOSSARY entries not already present. Avoid generic macro buzzwords. Prefer instrument-level terms (e.g., term structure, curve steepener/flatteners, realized vs implied basis, order book depth, gamma exposure, vanna/charm, convexity hedging).
     """
     seen = { (term or "").strip().lower() for term, _ in glossary }
     for term, expl in CORE_GLOSSARY.items():
@@ -736,12 +750,16 @@ if __name__ == "__main__":
     )
     research_items = []
     research_summaries = []
+    # Weekly deep dive (Sundays UTC)
     weekly_deep_dive = None
+    if datetime.utcnow().weekday() == 6:
+        print("[*] Weekly deep dive…")
+        weekly_deep_dive = summarize_deep_dive(pick_weekly_deep_dive(research_summaries))
 
     if DO_RESEARCH:
         max_per = MAX_RESEARCH_PER_FEED_WEEKLY if (RUN_RESEARCH == "weekly" or FORCE_RESEARCH) else MAX_RESEARCH_PER_FEED_DAILY
         print(f"[*] Fetching research… (max_per_feed={max_per})")
-        research_items = fetch_research(max_per)
+        research_items = select_latest_research(research_items, RESEARCH_TOP_N)
         research_summaries = summarize_research(research_items)
         print(f"[*] Research items: {len(research_items)} | Summarized: {len(research_summaries)}")
 
@@ -768,7 +786,7 @@ if __name__ == "__main__":
 
     print("[*] Extracting glossary…")
     glossary = extract_glossary(summaries, hot_list, ai_summaries)
-    glossary = ensure_core_glossary(glossary)
+    glossary = ensure_core_glossary(glossary, min_total=18)
 
     print("[*] Generating PDF…")
     pdf = generate_pdf(summaries, hot_list, overview, ai_summaries,
