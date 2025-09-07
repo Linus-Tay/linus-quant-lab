@@ -100,7 +100,9 @@ def overall_summary(summaries):
 
 def generate_pdf(summaries, hot_list, overview):
     """Make a nice PDF"""
-    filename = f"QuantDigest_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+    os.makedirs("GeneratedDigests", exist_ok=True)  # ensure folder exists
+    filename = f"GeneratedDigests/QuantDigest_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+    
     doc = SimpleDocTemplate(filename, pagesize=letter)
     styles = getSampleStyleSheet()
     story = []

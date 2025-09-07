@@ -32,6 +32,13 @@ jobs:
         run: |
           git config --global user.name "Linus-Github-Actions"
           git config --global user.email "regimelt@hotmail.com"
-          git add *.pdf
+          mkdir -p GeneratedDigests
+          git add GeneratedDigests/*.pdf
           git commit -m "Add daily quant digest"
           git push
+
+      - name: Upload digest PDF
+        uses: actions/upload-artifact@v3
+        with:
+          name: quant-digest
+          path: GeneratedDigests/*.pdf
