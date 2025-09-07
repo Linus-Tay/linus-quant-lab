@@ -41,7 +41,7 @@ EMAIL = os.getenv("EMAIL", "").strip()
 PASSWORD = os.getenv("PASSWORD", "").strip()
 
 # Optional calendar feeds (comma-separated .ics URLs). If empty, calendar lane skips.
-CALENDAR_ICS_URLS = ""
+CALENDAR_ICS_URLS = ["https://www.econoday.com/ics/Econoday_Calendar.ics", "https://tradingeconomics.com/calendar/ics/united-states"]
 
 SUMMARY_MODEL = "gpt-4.1-mini"     # cheap & capable; you can swap to "gpt-4o-mini"
 SUMMARY_MAX_TOKENS = 400
@@ -68,11 +68,15 @@ RSS_FEEDS = [
 ]
 
 # Research feeds (arXiv). Add/remove freely.
+# RESEARCH_FEEDS
 RESEARCH_FEEDS = [
-    "https://export.arxiv.org/rss/q-fin",     # all q-fin
-    "https://export.arxiv.org/rss/q-fin.TR",  # trading & microstructure
-    "https://export.arxiv.org/rss/q-fin.ST",  # statistical finance
+    "https://export.arxiv.org/rss/q-fin",
+    "https://export.arxiv.org/rss/q-fin.TR",
+    "https://export.arxiv.org/rss/q-fin.ST",
+    "https://www.aqr.com/DesktopModules/Custom/RssFeed.aspx?mid=1463&PortalId=7&tid=1463",  # AQR Research
+    "https://www.ssrn.com/index.cfm/en/rss/"  # SSRN global; can later filter
 ]
+
 MAX_RESEARCH_PER_FEED = 5
 
 # Calendar settings
