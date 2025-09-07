@@ -83,41 +83,52 @@ def summarize_articles(articles):
     for art in articles:
         content = f"Title: {art['title']}\nSource: {art['source']}\nDescription: {art['desc']}\nURL: {art['url']}"
 
-        chat = client.chat.completions.create(
-            model="gpt-4.1-mini",
-            messages=[
-                {"role": "system", "content": "Summarize this financial news in clear language. Focus only on quant- and market-relevant details. Briefly explain key terms if needed. Then decide if this belongs to a 'Hot List' of must-know items (output only 'HOT LIST=Yes' or 'HOT LIST=No'). Do not label the article itself as 'for a quant engineer'. Just summarize naturally."},
-                {"role": "user", "content": content},
-            ],
-            max_tokens=250,
-        )
+    chat = client.chat.completions.create(
+    model="gpt-4.1-mini",
+    messages=[
+        {"role": "system", "content": (
+            "Summarize this financial news in ~100 words (4–6 sentences). "
+            "Keep clarity and quant/market relevance. "
+            "At the end, decide if it's a Hot List item, "
+            "but output only 'HOT LIST=Yes' or 'HOT LIST=No' clearly on a new line."
+        )},
+        {"role": "user", "content": content},
+        ],
+            max_tokens=400,  # More room for detail
+    )
+    summary_text = chat.choices[0].message.content
+    # strip hotlist markers
+    summary_text = (
+        summary_text.replace("HOT LIST=Yes", "")
+                    .replace("HOT LIST=No", "")
+                    .strip()
+    )
 
-        summary_text = chat.choices[0].message.content
-        item = (art["title"], summary_text, art["url"], art["source"])
+    item = (art["title"], summary_text, art["url"], art["source"])
 
-        if art["category"] == "ai":
-            ai_summaries.append(item)
-        else:
-            summaries.append(item)
+    if art["category"] == "ai":
+        ai_summaries.append(item)
+    else:
+        summaries.append(item)
 
-        if "HOT LIST=YES" in summary_text.upper():
-            hot_list.append(item)
+    if "HOT LIST=YES" in summary_text.upper():
+        hot_list.append(item)
 
     return summaries, hot_list, ai_summaries
 
 def overall_summary(summaries):
     """Generate daily overall summary + key terms"""
     client = OpenAI(api_key=OPENAI_API_KEY.strip())
-    combined = "\n".join([s[1] for s in summaries])
 
     chat = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-            {"role": "system", "content": "Write a structured market briefing."},
-            {"role": "user", "content": f"Here are today's article summaries:\n{combined}\n\nProvide:\n1. ~200 word overview of the day’s most important financial and market news.\n2. A concise bullet list of key takeaways.\n3. A short 'Key Terms' glossary with definitions of important finance/quant terms mentioned. Avoid repetition of article text. Focus on clarity and usefulness."}
+            {"role": "system", "content": "Write a structured 200–250 word market briefing."},
+            {"role": "user", "content": f"..."},
         ],
-        max_tokens=500,
+        max_tokens=1000,  # so glossary doesn’t cut off
     )
+
     return chat.choices[0].message.content
 
 def generate_pdf(summaries, hot_list, overview, ai_summaries):
