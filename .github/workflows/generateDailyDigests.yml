@@ -2,7 +2,7 @@ name: Quant Digest
 
 on:
   schedule:
-    - cron: "*/2 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch: # manual trigger
 
 permissions:
@@ -35,8 +35,8 @@ jobs:
         run: |
           git config --global user.name "Linus-Github-Actions"
           git config --global user.email "regimelt@hotmail.com"
-          mkdir -p GeneratedDigests
-          git add GeneratedDigests/*.pdf
+          mkdir -p quant-digest/GeneratedDigests
+          git add quant-digest/GeneratedDigests/*.pdf
           git commit -m "Add daily quant digest"
           git push
 
