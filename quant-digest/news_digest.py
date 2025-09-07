@@ -38,7 +38,7 @@ NEWS_API_KEY = os.getenv("NEWS_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 EMAIL = os.getenv("EMAIL", "").strip()
 PASSWORD = os.getenv("PASSWORD", "").strip()
-RESEARCH_TOP_N = int(os.getenv("RESEARCH_TOP_N", "10"))
+RESEARCH_TOP_N = 10
 
 # Optional calendar feeds (comma-separated .ics URLs). If empty, calendar lane skips.
 CALENDAR_ICS_URLS = "https://www.bls.gov/schedule/news_release/bls.ics,https://tradingeconomics.com/calendar/ics/united-states"
