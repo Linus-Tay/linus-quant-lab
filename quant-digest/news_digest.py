@@ -41,7 +41,7 @@ EMAIL = os.getenv("EMAIL", "").strip()
 PASSWORD = os.getenv("PASSWORD", "").strip()
 
 # Optional calendar feeds (comma-separated .ics URLs). If empty, calendar lane skips.
-CALENDAR_ICS_URLS = "https://www.econoday.com/ics/Econoday_Calendar.ics,https://tradingeconomics.com/calendar/ics/united-states"
+CALENDAR_ICS_URLS = "https://www.bls.gov/schedule/news_release/bls.ics,https://tradingeconomics.com/calendar/ics/united-states"
 SUMMARY_MODEL = "gpt-4.1-mini"     # cheap & capable; you can swap to "gpt-4o-mini"
 SUMMARY_MAX_TOKENS = 400
 OVERVIEW_MAX_TOKENS = 600
@@ -66,14 +66,32 @@ RSS_FEEDS = [
     "https://ftalphaville.ft.com/feed/"
 ]
 
-# Research feeds (arXiv). Add/remove freely.
-# RESEARCH_FEEDS
+# Research feeds (reliable, low-flake)
 RESEARCH_FEEDS = [
+    # arXiv (quant finance) — low volume day-to-day, still worth keeping
     "https://export.arxiv.org/rss/q-fin",
     "https://export.arxiv.org/rss/q-fin.TR",
     "https://export.arxiv.org/rss/q-fin.ST",
-    "https://www.aqr.com/DesktopModules/Custom/RssFeed.aspx?mid=1463&PortalId=7&tid=1463",  # AQR Research
-    "https://www.ssrn.com/index.cfm/en/rss/"  # SSRN global; can later filter
+
+    # NBER weekly “new this week”
+    "https://back.nber.org/rss/new.xml",
+
+    # Federal Reserve Board working papers
+    "https://www.federalreserve.gov/feeds/feds.xml",   # FEDS
+    "https://www.federalreserve.gov/feeds/ifdp.xml",   # IFDP
+
+    # CEPR discussion papers
+    "https://cepr.org/rss/discussion-paper",
+
+    # BIS research feeds (both are useful)
+    "https://www.bis.org/doclist/bis_fsi_publs.rss",   # BIS/FSI research papers
+    "https://www.bis.org/doclist/reshub_papers.rss",   # Central Bank Research Hub (aggregated)
+]
+
+# Practitioner blogs with good summaries (WordPress-native RSS)
+RESEARCH_EXTRA_FEEDS = [
+    "https://alphaarchitect.com/feed/",
+    "https://quantocracy.com/feed/",
 ]
 
 MAX_RESEARCH_PER_FEED = 5
@@ -84,6 +102,16 @@ CALENDAR_KEYWORDS = [
     "CPI","inflation","nonfarm","payroll","NFP","FOMC","Fed","ECB","BoE","BoJ",
     "rate decision","PCE","ISM","PMI","GDP","retail sales","jobless","claims","auction"
 ]
+
+# Research cadence toggles
+RUN_RESEARCH = os.getenv("RUN_RESEARCH", "weekly").lower()  # "weekly", "always", "off"
+RESEARCH_DAY_UTC = int(os.getenv("RESEARCH_DAY_UTC", "6"))  # 0=Mon ... 6=Sun
+FORCE_RESEARCH = os.getenv("FORCE_RESEARCH", "").lower() in ("1", "true", "yes")
+
+# Per-feed caps (more generous on weekly)
+MAX_RESEARCH_PER_FEED_DAILY  = int(os.getenv("MAX_RESEARCH_PER_FEED_DAILY",  "5"))
+MAX_RESEARCH_PER_FEED_WEEKLY = int(os.getenv("MAX_RESEARCH_PER_FEED_WEEKLY", "15"))
+
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -221,22 +249,24 @@ def fetch_news():
 # ─────────────────────────────────────────────────────────────────────────────
 # Research lane
 # ─────────────────────────────────────────────────────────────────────────────
-def fetch_research():
+def fetch_research(max_per_feed: int):
     items = []
     feeds = RESEARCH_FEEDS + RESEARCH_EXTRA_FEEDS
     for feed in feeds:
         try:
             parsed = feedparser.parse(feed)
-            for e in parsed.entries[:MAX_RESEARCH_PER_FEED]:
+            take = max_per_feed if max_per_feed > 0 else len(parsed.entries)
+            for e in parsed.entries[:take]:
                 items.append({
                     "title": getattr(e, "title", "") or "(untitled)",
                     "desc": getattr(e, "summary", "") or "",
                     "url": getattr(e, "link", "") or "",
-                    "source": (parsed.feed.get("title") if hasattr(parsed, "feed") else "arXiv"),
+                    "source": (parsed.feed.get("title") if hasattr(parsed, "feed") else "RSS"),
                 })
         except Exception as ex:
             print(f"[WARN] Research RSS failed: {feed} — {ex}")
     return _dedupe_articles(items)
+
 
 def summarize_research(research_items):
     """Short practitioner blurbs for research."""
@@ -382,23 +412,33 @@ def fetch_calendar_events(ics_urls_env: str):
     for url in urls:
         resp = _safe_get(url)
         if not (resp and resp.ok):
-            print(f"[WARN] Calendar fetch failed: {url}")
+            print(f"[WARN] Calendar fetch failed (HTTP): {url}")
             continue
-        try:
-            cal = Calendar(resp.text)
-            for ev in cal.events:
-                start = getattr(ev, "begin", None)
-                if not start:
-                    continue
-                dt = start.datetime.replace(tzinfo=start.tzinfo or tz.UTC)
-                if now <= dt <= until:
-                    title = _norm(getattr(ev, "name", "") or "")
-                    desc  = _norm(getattr(ev, "description", "") or "")
-                    blob  = f"{title} {desc}".lower()
-                    if any(k.lower() in blob for k in CALENDAR_KEYWORDS):
-                        events.append((dt, title or "(untitled)", desc))
-        except Exception as ex:
-            print(f"[WARN] Calendar parse failed for {url}: {ex}")
+
+        ctype = resp.headers.get("Content-Type", "")
+        if "text/calendar" not in ctype and not url.lower().endswith(".ics"):
+            print(f"[WARN] Not an ICS (Content-Type={ctype!r}): {url}")
+            continue
+
+    try:
+        cal = Calendar(resp.text)
+        total, kept = 0, 0
+        for ev in cal.events:
+            total += 1
+            start = getattr(ev, "begin", None)
+            if not start:
+                continue
+            dt = start.datetime.replace(tzinfo=start.tzinfo or tz.UTC)
+            if now <= dt <= until:
+                title = _norm(getattr(ev, "name", "") or "")
+                desc  = _norm(getattr(ev, "description", "") or "")
+                blob  = f"{title} {desc}".lower()
+                if any(k.lower() in blob for k in CALENDAR_KEYWORDS):
+                    events.append((dt, title or "(untitled)", desc))
+                    kept += 1
+        print(f"[INFO] Calendar scanned: {url} | events={total} | matched={kept}")
+    except Exception as ex:
+        print(f"[WARN] Calendar parse failed for {url}: {ex}")
 
     events.sort(key=lambda x: x[0])
     return events[:20]
@@ -687,12 +727,28 @@ if __name__ == "__main__":
         sys.exit(1)
 
     # Optional lanes
-    print("[*] Fetching research…")
-    research_items = fetch_research()
-    research_summaries = summarize_research(research_items)
+    print("[*] Research cadence decision…")
+    DO_RESEARCH = FORCE_RESEARCH or (RUN_RESEARCH == "always") or (
+        RUN_RESEARCH == "weekly" and datetime.utcnow().weekday() == RESEARCH_DAY_UTC
+    )
+    research_items = []
+    research_summaries = []
+    weekly_deep_dive = None
 
-    print("[*] Fetching calendar…")
-    calendar_events = fetch_calendar_events(CALENDAR_ICS_URLS)
+    if DO_RESEARCH:
+        max_per = MAX_RESEARCH_PER_FEED_WEEKLY if (RUN_RESEARCH == "weekly" or FORCE_RESEARCH) else MAX_RESEARCH_PER_FEED_DAILY
+        print(f"[*] Fetching research… (max_per_feed={max_per})")
+        research_items = fetch_research(max_per)
+        research_summaries = summarize_research(research_items)
+        print(f"[*] Research items: {len(research_items)} | Summarized: {len(research_summaries)}")
+
+        # Deep dive only if it's the configured research day (default Sunday UTC),
+        # or if you force it.
+        if FORCE_RESEARCH or datetime.utcnow().weekday() == RESEARCH_DAY_UTC:
+            print("[*] Weekly deep dive…")
+            weekly_deep_dive = summarize_deep_dive(pick_weekly_deep_dive(research_summaries))
+    else:
+        print("[*] Skipping research this run (RUN_RESEARCH=%r, RESEARCH_DAY_UTC=%d)" % (RUN_RESEARCH, RESEARCH_DAY_UTC))
 
     # Weekly deep dive (Sundays UTC)
     weekly_deep_dive = None
