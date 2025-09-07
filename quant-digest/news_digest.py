@@ -104,7 +104,7 @@ def generate_pdf(summaries, hot_list, overview):
     os.makedirs(output_dir, exist_ok=True)  # ensure folder exists
 
     filename = os.path.join(
-        output_dir, f"QuantDigest_{datetime.now().strftime('%Y-%m-%d')}.pdf"
+        output_dir, f"Quant Digest_{datetime.now().strftime('%Y-%m-%d')}.pdf"
     )
 
     doc = SimpleDocTemplate(filename, pagesize=letter)
