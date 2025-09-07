@@ -81,40 +81,51 @@ def summarize_articles(articles):
     summaries, hot_list, ai_summaries = [], [], []
 
     for art in articles:
-        content = f"Title: {art['title']}\nSource: {art['source']}\nDescription: {art['desc']}\nURL: {art['url']}"
+        content = (
+            f"Title: {art['title']}\n"
+            f"Source: {art['source']}\n"
+            f"Description: {art['desc']}\n"
+            f"URL: {art['url']}"
+        )
 
-    chat = client.chat.completions.create(
-    model="gpt-4.1-mini",
-    messages=[
-        {"role": "system", "content": (
-            "Summarize this financial news in ~100 words (4–6 sentences). "
-            "Keep clarity and quant/market relevance. "
-            "At the end, decide if it's a Hot List item, "
-            "but output only 'HOT LIST=Yes' or 'HOT LIST=No' clearly on a new line."
-        )},
-        {"role": "user", "content": content},
-        ],
-            max_tokens=400,  # More room for detail
-    )
-    summary_text = chat.choices[0].message.content
-    # strip hotlist markers
-    summary_text = (
-        summary_text.replace("HOT LIST=Yes", "")
-                    .replace("HOT LIST=No", "")
-                    .strip()
-    )
+        chat = client.chat.completions.create(
+            model="gpt-4.1-mini",
+            messages=[
+                {"role": "system", "content": (
+                    "Summarize this financial news in ~100 words (4–6 sentences). "
+                    "Keep clarity and quant/market relevance. "
+                    "At the end, decide if it's a Hot List item, "
+                    "but output only 'HOT LIST=Yes' or 'HOT LIST=No' clearly on a new line."
+                )},
+                {"role": "user", "content": content},
+            ],
+            max_tokens=400,
+        )
 
-    item = (art["title"], summary_text, art["url"], art["source"])
+        summary_text = chat.choices[0].message.content or ""
+        is_hot = "HOT LIST=YES" in summary_text.upper()
 
-    if art["category"] == "ai":
-        ai_summaries.append(item)
-    else:
-        summaries.append(item)
+        # Strip markers cleanly
+        summary_text = (
+            summary_text.replace("HOT LIST=Yes", "")
+                        .replace("HOT LIST=No", "")
+                        .replace("HOT LIST=YES", "")
+                        .replace("HOT LIST=NO", "")
+                        .strip()
+        )
 
-    if "HOT LIST=YES" in summary_text.upper():
-        hot_list.append(item)
+        item = (art["title"], summary_text, art["url"], art["source"])
+
+        if art["category"] == "ai":
+            ai_summaries.append(item)
+        else:
+            summaries.append(item)
+
+        if is_hot:
+            hot_list.append(item)
 
     return summaries, hot_list, ai_summaries
+
 
 def overall_summary(summaries):
     """Generate daily overall summary + key terms"""
