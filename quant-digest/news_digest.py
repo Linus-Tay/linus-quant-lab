@@ -2,10 +2,11 @@ import os
 import re
 import sys
 import time
+import json
 import socket
 import requests
 import feedparser
-from datetime import datetime
+from datetime import datetime, timedelta
 from urllib.parse import urlparse
 from textwrap import shorten
 
@@ -22,6 +23,14 @@ from email.mime.base import MIMEBase
 from email import encoders
 from dotenv import load_dotenv
 
+# Optional lanes
+try:
+    from ics import Calendar
+    from dateutil import tz
+    _HAS_CAL = True
+except Exception:
+    _HAS_CAL = False
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Env / Config
 # ─────────────────────────────────────────────────────────────────────────────
@@ -31,9 +40,13 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 EMAIL = os.getenv("EMAIL", "").strip()
 PASSWORD = os.getenv("PASSWORD", "").strip()
 
-SUMMARY_MODEL = "gpt-4.1-mini"
+# Optional calendar feeds (comma-separated .ics URLs). If empty, calendar lane skips.
+CALENDAR_ICS_URLS = ""
+
+SUMMARY_MODEL = "gpt-4.1-mini"     # cheap & capable; you can swap to "gpt-4o-mini"
 SUMMARY_MAX_TOKENS = 400
 OVERVIEW_MAX_TOKENS = 600
+GLOSSARY_MAX_TOKENS = 500
 OPENAI_TEMP = 0.2
 
 REQUEST_TIMEOUT = 15
@@ -44,13 +57,29 @@ MAX_NEWSAPI_AI = 5
 # Topics
 TOPICS = ["quant finance", "derivatives", "hedge funds", "trading", "markets"]
 EXTRA_TOPICS = ["AI in finance", "machine learning trading", "algorithmic trading AI"]
+RESEARCH_EXTRA_FEEDS = ["https://www.aqr.com/Insights/rss","https://www.man.com/maninstitute/rss.xml"]
 
 # RSS feeds
 RSS_FEEDS = [
     "https://www.cnbc.com/id/100003114/device/rss/rss.html",  # CNBC Markets
     "https://www.reutersagency.com/feed/?best-topics=markets", # Reuters Markets
-    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^IXIC,^DJI&region=US&lang=en-US", # Yahoo Finance
-    "https://ftalphaville.ft.com/feed/"  # FT Alphaville
+    "https://feeds.finance.yahoo.com/rss/2.0/headline?s=^GSPC,^IXIC,^DJI&region=US&lang=en-US",
+    "https://ftalphaville.ft.com/feed/"
+]
+
+# Research feeds (arXiv). Add/remove freely.
+RESEARCH_FEEDS = [
+    "https://export.arxiv.org/rss/q-fin",     # all q-fin
+    "https://export.arxiv.org/rss/q-fin.TR",  # trading & microstructure
+    "https://export.arxiv.org/rss/q-fin.ST",  # statistical finance
+]
+MAX_RESEARCH_PER_FEED = 5
+
+# Calendar settings
+CALENDAR_LOOKAHEAD_DAYS = 7
+CALENDAR_KEYWORDS = [
+    "CPI","inflation","nonfarm","payroll","NFP","FOMC","Fed","ECB","BoE","BoJ",
+    "rate decision","PCE","ISM","PMI","GDP","retail sales","jobless","claims","auction"
 ]
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,50 +109,38 @@ def _truncate(s: str, lim: int = 260) -> str:
 
 def _strip_hot_marker(summary: str):
     """
-    Return (clean_summary, is_hot).
-    Accepts variants like:
-      HOT LIST=Yes / HOT LIST=No
-      Hot List: Yes / No
-      (case-insensitive, with or without trailing period)
+    Return (clean_summary, is_hot). Accepts 'HOT LIST=Yes/No' variants.
     """
     text = summary or ""
-    # Determine hot before stripping
     is_hot = "HOT LIST=YES" in text.upper() or re.search(
-        r"^\s*hot\s*list\s*[:=]\s*yes\s*\.?\s*$",
-        text,
-        re.IGNORECASE | re.MULTILINE,
+        r"^\s*hot\s*list\s*[:=]\s*yes\s*\.?\s*$", text, re.IGNORECASE | re.MULTILINE
     ) is not None
-
-    # Remove any HOT LIST line entirely
     pattern = re.compile(r"^\s*hot\s*list\s*[:=]\s*(yes|no)\s*\.?\s*$",
                          re.IGNORECASE | re.MULTILINE)
     text = re.sub(pattern, "", text).strip()
     return text, is_hot
 
 def _dedupe_articles(articles):
-    """
-    Deduplicate by URL if present, else by normalized title.
-    Keep first occurrence.
-    """
-    seen_urls = set()
-    seen_titles = set()
-    out = []
+    """Deduplicate by URL if present, else by normalized title."""
+    seen_urls, seen_titles, out = set(), set(), []
     for a in articles:
-        url = (a.get("url") or "").strip()
-        title = _norm(a.get("title") or "")
-        key_url = url.lower()
-        key_title = title.lower()
-
-        if url and key_url in seen_urls:
-            continue
-        if (not url) and title and key_title in seen_titles:
-            continue
-
-        if url:
-            seen_urls.add(key_url)
-        if title:
-            seen_titles.add(key_title)
+        url = (a.get("url") or "").strip().lower()
+        title = _norm(a.get("title") or "").lower()
+        if url and url in seen_urls:   continue
+        if (not url) and title and title in seen_titles:  continue
+        if url:   seen_urls.add(url)
+        if title: seen_titles.add(title)
         out.append(a)
+    return out
+
+def _unique_by_title(items):
+    """[(title, summary, url, source)] -> unique by normalized title"""
+    seen, out = set(), []
+    for t, s, u, src in items:
+        key = _norm(t).lower()
+        if key in seen: continue
+        seen.add(key)
+        out.append((t, s, u, src))
     return out
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -142,12 +159,10 @@ def fetch_news():
             "sortBy": "publishedAt",
             "pageSize": MAX_NEWSAPI_MAIN,
             "apiKey": NEWS_API_KEY,
-            # optional: "searchIn": "title,description"
         }
         resp = _safe_get(url, params=params)
         if resp and resp.ok:
-            data = resp.json()
-            for art in data.get("articles", []):
+            for art in resp.json().get("articles", []):
                 articles.append({
                     "title": art.get("title"),
                     "desc": art.get("description") or "",
@@ -168,8 +183,7 @@ def fetch_news():
         }
         resp_ai = _safe_get(url, params=params_ai)
         if resp_ai and resp_ai.ok:
-            data_ai = resp_ai.json()
-            for art in data_ai.get("articles", []):
+            for art in resp_ai.json().get("articles", []):
                 articles.append({
                     "title": art.get("title"),
                     "desc": art.get("description") or "",
@@ -202,7 +216,56 @@ def fetch_news():
     return articles
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Summarization
+# Research lane
+# ─────────────────────────────────────────────────────────────────────────────
+def fetch_research():
+    items = []
+    feeds = RESEARCH_FEEDS + RESEARCH_EXTRA_FEEDS
+    for feed in feeds:
+        try:
+            parsed = feedparser.parse(feed)
+            for e in parsed.entries[:MAX_RESEARCH_PER_FEED]:
+                items.append({
+                    "title": getattr(e, "title", "") or "(untitled)",
+                    "desc": getattr(e, "summary", "") or "",
+                    "url": getattr(e, "link", "") or "",
+                    "source": (parsed.feed.get("title") if hasattr(parsed, "feed") else "arXiv"),
+                })
+        except Exception as ex:
+            print(f"[WARN] Research RSS failed: {feed} — {ex}")
+    return _dedupe_articles(items)
+
+def summarize_research(research_items):
+    """Short practitioner blurbs for research."""
+    if not research_items:
+        return []
+    if not OPENAI_API_KEY:
+        return []
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    out = []
+    prompt = (
+        "Summarize this quant finance paper in 3–5 sentences for a practitioner. "
+        "Cover: problem, method, data, key result. End with one bullet 'Why it matters' "
+        "in 1 sentence. No equations, no citations."
+    )
+    for idx, art in enumerate(research_items, 1):
+        content = f"Title: {art['title']}\nAbstract: {art['desc']}\nURL: {art['url']}"
+        try:
+            chat = client.chat.completions.create(
+                model=SUMMARY_MODEL, temperature=0.2, max_tokens=350,
+                messages=[{"role":"system","content":prompt},{"role":"user","content":content}]
+            )
+            summary = (chat.choices[0].message.content or "").strip()
+            out.append((art["title"], summary, art["url"], art["source"]))
+            print(f"[OK] Research {idx}/{len(research_items)}")
+            time.sleep(0.1)
+        except Exception as e:
+            print(f"[WARN] Research summarize failed: {e}")
+    return _unique_by_title(out)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Summarization (news)
 # ─────────────────────────────────────────────────────────────────────────────
 def summarize_articles(articles):
     """Use GPT to summarize + flag hot items"""
@@ -226,15 +289,12 @@ def summarize_articles(articles):
             f"Description: {art.get('desc')}\n"
             f"URL: {art.get('url')}"
         )
-
         try:
             chat = client.chat.completions.create(
                 model=SUMMARY_MODEL,
                 temperature=OPENAI_TEMP,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": content},
-                ],
+                messages=[{"role": "system", "content": system_prompt},
+                          {"role": "user", "content": content}],
                 max_tokens=SUMMARY_MAX_TOKENS,
             )
             raw = (chat.choices[0].message.content or "").strip()
@@ -254,20 +314,15 @@ def summarize_articles(articles):
             hot_list.append(item)
 
         print(f"[OK] Summarized {idx}/{len(articles)} | HOT={is_hot} | {item[0][:70]}")
-
-        # brief pause to be polite to API (optional)
         time.sleep(0.1)
 
-    return summaries, hot_list, ai_summaries
+    # De-dup lists themselves
+    return _unique_by_title(summaries), _unique_by_title(hot_list), _unique_by_title(ai_summaries)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Daily Overview (briefing)
 # ─────────────────────────────────────────────────────────────────────────────
 def build_overview_context(summaries, hot_list):
-    """
-    Build structured context for the briefing.
-    summaries/hot_list: list[tuple(title, summary, url, source)]
-    """
     lines = []
     today = datetime.now().strftime("%Y-%m-%d")
     lines.append(f"DATE: {today}")
@@ -280,14 +335,11 @@ def build_overview_context(summaries, hot_list):
     lines.append("KEY ARTICLES:")
     for title, summary, url, source in summaries[:12]:
         lines.append(f"• {title} — {source}: {_truncate(summary, 240)}")
-
     return "\n".join(lines)
 
 def overall_summary(summaries, hot_list=None):
-    """Generate a 200–250 word quant-focused daily briefing."""
     if not OPENAI_API_KEY:
         raise RuntimeError("OPENAI_API_KEY is missing.")
-
     client = OpenAI(api_key=OPENAI_API_KEY)
     hot_list = hot_list or []
     context = build_overview_context(summaries, hot_list)
@@ -295,32 +347,171 @@ def overall_summary(summaries, hot_list=None):
     sys_prompt = (
         "You are a buy-side macro/quant analyst. Write a tight 200–250 word daily market briefing "
         "for a quant audience. DO NOT ask clarifying questions. If information is thin, infer the "
-        "most likely market tone without fabricating exact numbers. Prioritise items listed under "
-        "'HOT ITEMS'. Keep it objective and structured as:\n\n"
-        "1) Macro & Sentiment\n"
-        "2) Equities / Rates\n"
-        "3) FX & Commodities (only if context exists)\n"
-        "4) What to Watch (1–3 bullets)\n\n"
-        "No hyperlinks. No preambles. No ‘as an AI’ phrasing. 200–250 words."
+        "likely market tone without fabricating exact numbers. Prioritise items under 'HOT ITEMS'. "
+        "Structure:\n1) Macro & Sentiment\n2) Equities / Rates\n3) FX & Commodities (if context)\n"
+        "4) What to Watch (1–3 bullets)\nNo links/preambles. 200–250 words."
     )
 
     chat = client.chat.completions.create(
         model=SUMMARY_MODEL,
         temperature=OPENAI_TEMP,
-        messages=[
-            {"role": "system", "content": sys_prompt},
-            {"role": "user", "content": context},
-        ],
+        messages=[{"role": "system", "content": sys_prompt},
+                  {"role": "user", "content": context}],
         max_tokens=OVERVIEW_MAX_TOKENS,
     )
-
     return (chat.choices[0].message.content or "").strip()
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Macro Calendar lane (ICS)
+# ─────────────────────────────────────────────────────────────────────────────
+def fetch_calendar_events(ics_urls_env: str):
+    if not _HAS_CAL:
+        print("[INFO] ics/dateutil not installed — skipping calendar lane.")
+        return []
+    urls = [u.strip() for u in (ics_urls_env or "").split(",") if u.strip()]
+    if not urls:
+        print("[INFO] No CALENDAR_ICS_URLS provided — skipping calendar lane.")
+        return []
+    now = datetime.utcnow().replace(tzinfo=tz.UTC)
+    until = now + timedelta(days=CALENDAR_LOOKAHEAD_DAYS)
+
+    events = []
+    for url in urls:
+        resp = _safe_get(url)
+        if not (resp and resp.ok):
+            print(f"[WARN] Calendar fetch failed: {url}")
+            continue
+        try:
+            cal = Calendar(resp.text)
+            for ev in cal.events:
+                start = getattr(ev, "begin", None)
+                if not start:
+                    continue
+                dt = start.datetime.replace(tzinfo=start.tzinfo or tz.UTC)
+                if now <= dt <= until:
+                    title = _norm(getattr(ev, "name", "") or "")
+                    desc  = _norm(getattr(ev, "description", "") or "")
+                    blob  = f"{title} {desc}".lower()
+                    if any(k.lower() in blob for k in CALENDAR_KEYWORDS):
+                        events.append((dt, title or "(untitled)", desc))
+        except Exception as ex:
+            print(f"[WARN] Calendar parse failed for {url}: {ex}")
+
+    events.sort(key=lambda x: x[0])
+    return events[:20]
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Keywords / Mini-Glossary
+# ─────────────────────────────────────────────────────────────────────────────
+def extract_glossary(summaries, hot_list, ai_summaries, max_terms=15):
+    """Return list[(term, explanation)] as one-liners."""
+    if not OPENAI_API_KEY:
+        return []
+
+    client = OpenAI(api_key=OPENAI_API_KEY)
+
+    def pack(items, cap=10):
+        lines = []
+        for t, s, u, src in items[:cap]:
+            lines.append(f"{t}: {s}")
+        return "\n".join(lines)
+
+    source_text = (
+        "HOT:\n" + pack(hot_list, 8) + "\n\n" +
+        "ARTICLES:\n" + pack(summaries, 12) + "\n\n" +
+        "AI:\n" + pack(ai_summaries, 6)
+    )
+
+    sys_prompt = (
+        "From the provided market/quant summaries, extract the most relevant quantitative finance terms "
+        f"(max {max_terms}). Return strict JSON: "
+        "[{\"term\":\"...\",\"explain\":\"short, plain-English one-liner\"}, ...]. "
+        "Prefer derivatives/risk/microstructure/macro metrics (basis, carry, convexity, term premium, "
+        "vol surface, order flow imbalance, VaR/CVaR, realized vs implied vol, etc.)."
+    )
+
+    chat = client.chat.completions.create(
+        model=SUMMARY_MODEL,
+        temperature=0.1,
+        messages=[{"role":"system","content":sys_prompt},
+                  {"role":"user","content":source_text}],
+        max_tokens=GLOSSARY_MAX_TOKENS,
+    )
+
+    raw = (chat.choices[0].message.content or "").strip()
+    try:
+        data = json.loads(raw)
+        out = []
+        for item in data:
+            term = _norm(str(item.get("term", "")))
+            expl = _norm(str(item.get("explain", "")))
+            if term and expl:
+                out.append((term, expl))
+        return out[:max_terms]
+    except Exception:
+        print("[WARN] Glossary JSON parse failed; skipping.")
+        return []
+    
+    # Starter pack for days when the model returns too few terms
+CORE_GLOSSARY = {
+    "alpha": "Excess return vs a benchmark after adjusting for risk.",
+    "beta": "Sensitivity of an asset to market moves; ~1 means market-like.",
+    "volatility": "How much returns vary; higher vol = wider swings.",
+    "implied volatility": "Vol inferred from option prices; a forward-looking gauge.",
+    "realized volatility": "Vol computed from past returns.",
+    "carry": "Return from holding an asset ignoring price changes (e.g., yield, roll).",
+    "term premium": "Extra yield for holding longer-maturity bonds.",
+    "basis": "Futures price minus spot; reflects carry, funding, and demand.",
+    "convexity": "Nonlinear price sensitivity to yield changes (second-order duration).",
+    "duration": "Bond price sensitivity to yield changes (first-order).",
+    "skew": "Asymmetry of the return distribution; options: downside risk premium.",
+    "VaR": "Loss threshold not expected to be exceeded with given probability.",
+    "CVaR": "Average loss beyond VaR; tail risk measure.",
+    "order flow imbalance": "Net buying vs selling pressure in the order book/tape.",
+    "market microstructure": "How trading mechanisms & frictions affect prices."
+}
+
+def ensure_core_glossary(glossary, min_total=12):
+    """
+    If fewer than min_total terms, top up with CORE_GLOSSARY entries not already present.
+    """
+    seen = { (term or "").strip().lower() for term, _ in glossary }
+    for term, expl in CORE_GLOSSARY.items():
+        if len(glossary) >= min_total:
+            break
+        if term.lower() not in seen:
+            glossary.append((term, expl))
+    return glossary
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Weekly Deep Dive (Sundays)
+# ─────────────────────────────────────────────────────────────────────────────
+def pick_weekly_deep_dive(research_summaries):
+    return research_summaries[0] if research_summaries else None
+
+def summarize_deep_dive(item):
+    if not item:
+        return None
+    client = OpenAI(api_key=OPENAI_API_KEY)
+    title, summary, url, source = item
+    sys_prompt = (
+        "Write a 150–250 word note to help a junior quant read this paper fast. "
+        "Structure: (1) Problem (2) Approach (intuition > math) (3) Why it matters "
+        "(trading/risk) (4) How to skim (which sections first). No equations, no citations, no links."
+    )
+    chat = client.chat.completions.create(
+        model=SUMMARY_MODEL, temperature=0.3, max_tokens=450,
+        messages=[{"role":"system","content":sys_prompt},
+                  {"role":"user","content":f"TITLE: {title}\nSUMMARY: {summary}\nURL: {url}"}]
+    )
+    return (title, (chat.choices[0].message.content or "").strip(), url, source)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # PDF
 # ─────────────────────────────────────────────────────────────────────────────
-def generate_pdf(summaries, hot_list, overview, ai_summaries):
-    """Make a nice PDF"""
+def generate_pdf(summaries, hot_list, overview, ai_summaries,
+                 research_summaries, calendar_events, weekly_deep_dive, glossary):
     output_dir = os.path.join("quant-digest", "GeneratedDigests")
     os.makedirs(output_dir, exist_ok=True)
 
@@ -339,7 +530,7 @@ def generate_pdf(summaries, hot_list, overview, ai_summaries):
     story.append(Paragraph("Quant Daily Digest", styles["Title"]))
     story.append(Spacer(1, 12))
 
-    # Overview first
+    # Overview
     story.append(Paragraph("📊 Daily Overview", styles["Heading1"]))
     story.append(Paragraph(overview or "No overview available.", styles["BodyText"]))
     story.append(Spacer(1, 12))
@@ -348,6 +539,7 @@ def generate_pdf(summaries, hot_list, overview, ai_summaries):
     if hot_list:
         story.append(Paragraph("🔥 Hot List", hot_style))
         story.append(Spacer(1, 6))
+        hot_list = _unique_by_title(hot_list)
         for title, summary, url, source in hot_list:
             story.append(Paragraph(f"<b>{_norm(title)}</b>", styles["Heading2"]))
             story.append(Paragraph(_norm(summary), styles["BodyText"]))
@@ -356,12 +548,12 @@ def generate_pdf(summaries, hot_list, overview, ai_summaries):
             story.append(Paragraph(f"{_norm(source)}", source_style))
             story.append(Spacer(1, 12))
 
-    # Articles (skip those already in hot list)
-    hot_titles = {h[0] for h in hot_list}
+    # Articles (skip Hot List)
+    hot_titles = { _norm(h[0]).lower() for h in hot_list }
     story.append(Paragraph("📰 Articles", styles["Heading1"]))
     any_article = False
-    for title, summary, url, source in summaries:
-        if title in hot_titles:
+    for title, summary, url, source in _unique_by_title(summaries):
+        if _norm(title).lower() in hot_titles:
             continue
         any_article = True
         story.append(Paragraph(f"<b>{_norm(title)}</b>", styles["Heading2"]))
@@ -374,16 +566,63 @@ def generate_pdf(summaries, hot_list, overview, ai_summaries):
         story.append(Paragraph("No additional articles (all key items are in Hot List).", styles["BodyText"]))
         story.append(Spacer(1, 12))
 
-    # AI & Finance section
+    # AI & Finance (also skip Hot List)
     if ai_summaries:
         story.append(Paragraph("🤖 AI & Finance", styles["Heading1"]))
-        for title, summary, url, source in ai_summaries:
+        for title, summary, url, source in _unique_by_title(ai_summaries):
+            if _norm(title).lower() in hot_titles:
+                continue
             story.append(Paragraph(f"<b>{_norm(title)}</b>", styles["Heading2"]))
             story.append(Paragraph(_norm(summary), styles["BodyText"]))
             if url:
                 story.append(Paragraph(f"<font color='blue'>Read more: <u>{url}</u></font>", styles["Normal"]))
             story.append(Paragraph(f"{_norm(source)}", source_style))
             story.append(Spacer(1, 12))
+
+    # Research Highlights
+    if research_summaries:
+        story.append(Paragraph("📑 Research Highlights", styles["Heading1"]))
+        for title, summary, url, source in _unique_by_title(research_summaries):
+            if _norm(title).lower() in hot_titles:
+                continue
+            story.append(Paragraph(f"<b>{_norm(title)}</b>", styles["Heading2"]))
+            story.append(Paragraph(_norm(summary), styles["BodyText"]))
+            if url:
+                story.append(Paragraph(f"<font color='blue'>Read: <u>{url}</u></font>", styles["Normal"]))
+            story.append(Paragraph(f"{_norm(source)}", source_style))
+            story.append(Spacer(1, 12))
+
+    # Weekly Deep Dive (Sundays)
+    if weekly_deep_dive:
+        dd_title, dd_note, dd_url, dd_src = weekly_deep_dive
+        story.append(Paragraph("📘 Weekly Deep Dive", styles["Heading1"]))
+        story.append(Paragraph(f"<b>{_norm(dd_title)}</b>", styles["Heading2"]))
+        story.append(Paragraph(_norm(dd_note), styles["BodyText"]))
+        if dd_url:
+            story.append(Paragraph(f"<font color='blue'>Paper: <u>{dd_url}</u></font>", styles["Normal"]))
+        story.append(Paragraph(f"{_norm(dd_src)}", source_style))
+        story.append(Spacer(1, 12))
+
+    # Macro Calendar (Next 7 Days)
+    if calendar_events:
+        story.append(Paragraph("🗓 Macro Calendar (Next 7 Days)", styles["Heading1"]))
+        for when, title, desc in calendar_events:
+            try:
+                local_ts = when.astimezone(tz.gettz("Asia/Singapore")).strftime("%a %d %b %H:%M")
+            except Exception:
+                local_ts = when.strftime("%a %d %b %H:%M UTC")
+            story.append(Paragraph(f"<b>{local_ts}</b> — {title}", styles["BodyText"]))
+            if desc:
+                story.append(Paragraph(_norm(desc), styles["BodyText"]))
+            story.append(Spacer(1, 6))
+
+    # Keywords / Mini-Glossary (bottom)
+    if glossary:
+        story.append(Spacer(1, 6))
+        story.append(Paragraph("📚 Quant Keywords & Mini-Glossary", styles["Heading1"]))
+        for term, expl in glossary:
+            story.append(Paragraph(f"<b>{_norm(term)}</b> — [{_norm(expl)}]", styles["BodyText"]))
+        story.append(Spacer(1, 12))
 
     doc.build(story)
     return filename
@@ -430,13 +669,13 @@ def send_email(file_path):
 if __name__ == "__main__":
     print("[*] Fetching news…")
     articles = fetch_news()
-    print(f"[*] Collected {len(articles)} raw articles after dedupe.")
+    print(f"[*] Collected {len(articles)} articles (post-dedupe).")
 
     if not articles:
-        print("[ERR] No articles fetched. Check your API keys / network / feeds.")
+        print("[ERR] No articles fetched. Check your API keys/network/feeds.")
         sys.exit(1)
 
-    print("[*] Summarizing articles…")
+    print("[*] Summarizing news…")
     summaries, hot_list, ai_summaries = summarize_articles(articles)
     print(f"[*] Summaries: {len(summaries)} | Hot: {len(hot_list)} | AI: {len(ai_summaries)}")
 
@@ -444,11 +683,30 @@ if __name__ == "__main__":
         print("[ERR] No summaries produced. Aborting before PDF/email.")
         sys.exit(1)
 
+    # Optional lanes
+    print("[*] Fetching research…")
+    research_items = fetch_research()
+    research_summaries = summarize_research(research_items)
+
+    print("[*] Fetching calendar…")
+    calendar_events = fetch_calendar_events(CALENDAR_ICS_URLS)
+
+    # Weekly deep dive (Sundays UTC)
+    weekly_deep_dive = None
+    if datetime.utcnow().weekday() == 6:
+        print("[*] Weekly deep dive…")
+        weekly_deep_dive = summarize_deep_dive(pick_weekly_deep_dive(research_summaries))
+
     print("[*] Building daily overview…")
     overview = overall_summary(summaries, hot_list)
 
+    print("[*] Extracting glossary…")
+    glossary = extract_glossary(summaries, hot_list, ai_summaries)
+    glossary = ensure_core_glossary(glossary)
+
     print("[*] Generating PDF…")
-    pdf = generate_pdf(summaries, hot_list, overview, ai_summaries)
+    pdf = generate_pdf(summaries, hot_list, overview, ai_summaries,
+                       research_summaries, calendar_events, weekly_deep_dive, glossary)
     print(f"[OK] Generated {pdf}")
 
     print("[*] Sending email (if configured)…")

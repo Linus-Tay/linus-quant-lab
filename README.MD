@@ -28,14 +28,22 @@ This lab is split into multiple explorations:
 
 ## 📰 Quant Digest
 
-The **Quant Digest** is an automated system that runs every day at **7:00 AM SGT**.  
+The **Quant Digest** runs daily at **07:00 SGT** (scheduled via GitHub Actions at `23:00 UTC`).
 
-Here’s what it does:
-1. Fetches financial and market news via [NewsAPI](https://newsapi.org/) and RSS feeds (CNBC, Reuters, Yahoo Finance, FT Alphaville).  
-2. Summarizes and filters content using **OpenAI GPT-4.1-mini**, with prompts tailored for relevance to quants.  
-3. Produces a polished PDF report that includes:  
-   - **📊 Daily Overview** of the markets.  
-   - **🔥 Hot List** (must-know events).  
-   - **📰 Other Relevant Articles**, without duplication.  
-   - A **Key Terms** glossary for financial/quant concepts.  
-4. Uploads the digest to GitHub → accessible in:  
+### What it does
+1. **Fetches news** from NewsAPI and RSS (CNBC, Reuters, Yahoo Finance, FT Alphaville).
+2. **Summarizes** with *GPT-4.1-mini* using quant-aware prompts.
+3. Builds a polished **PDF** with:
+   - **📊 Daily Overview** (macro tone, asset classes).
+   - **🔥 Hot List** (top items only).
+   - **📰 Articles** (no duplicates with Hot List).
+   - **🤖 AI & Finance** (industry/ML in markets).
+   - **📑 Research Highlights** (arXiv + optional AQR / Man / SSRN).
+   - **🗓 Macro Calendar (7 days)** (optional; via ICS feeds).
+   - **📘 Weekly Deep Dive** (Sundays: 1 paper explained in 150–250 words).
+   - **📚 Quant Keywords & Mini-Glossary** (plain-English terms).
+4. Uploads the PDF to the repo and as a workflow artifact. Emails a copy to me.
+
+### Configure
+Create `.env` locally or add **GitHub Secrets** (same names):
+
