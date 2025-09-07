@@ -38,7 +38,7 @@ jobs:
           git push
 
       - name: Upload digest PDF
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v4
         with:
           name: quant-digest
-          path: GeneratedDigests/*.pdf
+          path: quant-digest/GeneratedDigests/*.pdf
