@@ -1,0 +1,5 @@
+openai
+reportlab
+requests
+feedparser
+python-dotenv
