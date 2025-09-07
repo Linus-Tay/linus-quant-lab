@@ -21,8 +21,11 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 EMAIL = os.getenv("EMAIL")
 PASSWORD = os.getenv("PASSWORD")
 
+# Topics
 TOPICS = ["quant finance", "derivatives", "hedge funds", "trading", "markets"]
+EXTRA_TOPICS = ["AI in finance", "machine learning trading", "algorithmic trading AI"]
 
+# RSS feeds
 RSS_FEEDS = [
     "https://www.cnbc.com/id/100003114/device/rss/rss.html",  # CNBC Markets
     "https://www.reutersagency.com/feed/?best-topics=markets", # Reuters Markets
@@ -34,7 +37,7 @@ def fetch_news():
     """Fetch from NewsAPI + RSS feeds"""
     articles = []
 
-    # NewsAPI
+    # NewsAPI - main finance topics
     url = f"https://newsapi.org/v2/everything?q={' OR '.join(TOPICS)}&language=en&sortBy=publishedAt&pageSize=10&apiKey={NEWS_API_KEY}"
     resp = requests.get(url).json()
     for art in resp.get("articles", []):
@@ -42,7 +45,20 @@ def fetch_news():
             "title": art.get("title"),
             "desc": art.get("description") or "",
             "url": art.get("url"),
-            "source": art.get("source", {}).get("name", "Unknown")
+            "source": art.get("source", {}).get("name", "Unknown"),
+            "category": "finance"
+        })
+
+    # NewsAPI - AI in finance
+    url_ai = f"https://newsapi.org/v2/everything?q={' OR '.join(EXTRA_TOPICS)}&language=en&sortBy=publishedAt&pageSize=5&apiKey={NEWS_API_KEY}"
+    resp_ai = requests.get(url_ai).json()
+    for art in resp_ai.get("articles", []):
+        articles.append({
+            "title": art.get("title"),
+            "desc": art.get("description") or "",
+            "url": art.get("url"),
+            "source": art.get("source", {}).get("name", "Unknown"),
+            "category": "ai"
         })
 
     # RSS feeds
@@ -53,7 +69,8 @@ def fetch_news():
                 "title": entry.title,
                 "desc": entry.get("summary", ""),
                 "url": entry.link,
-                "source": parsed.feed.get("title", "RSS Feed")
+                "source": parsed.feed.get("title", "RSS Feed"),
+                "category": "finance"
             })
 
     return articles
@@ -61,7 +78,7 @@ def fetch_news():
 def summarize_articles(articles):
     """Use GPT to summarize + flag hot items"""
     client = OpenAI(api_key=OPENAI_API_KEY.strip())
-    summaries, hot_list = [], []
+    summaries, hot_list, ai_summaries = [], [], []
 
     for art in articles:
         content = f"Title: {art['title']}\nSource: {art['source']}\nDescription: {art['desc']}\nURL: {art['url']}"
@@ -76,12 +93,17 @@ def summarize_articles(articles):
         )
 
         summary_text = chat.choices[0].message.content
-        summaries.append((art["title"], summary_text, art["url"], art["source"]))
+        item = (art["title"], summary_text, art["url"], art["source"])
 
-        if "HOT LIST: YES" in summary_text.upper():  # simple trigger
-            hot_list.append((art["title"], summary_text, art["url"], art["source"]))
+        if art["category"] == "ai":
+            ai_summaries.append(item)
+        else:
+            summaries.append(item)
 
-    return summaries, hot_list
+        if "HOT LIST=YES" in summary_text.upper():
+            hot_list.append(item)
+
+    return summaries, hot_list, ai_summaries
 
 def overall_summary(summaries):
     """Generate daily overall summary + key terms"""
@@ -91,17 +113,17 @@ def overall_summary(summaries):
     chat = client.chat.completions.create(
         model="gpt-4.1-mini",
         messages=[
-            {"role": "system", "content": "Here are today's article summaries. Write:1. ~200 word overview of the day’s most important financial and market news. 2. A concise bullet list of key takeaways. 3. A short 'Key Terms' glossary with definitions of important finance/quant terms mentioned.Avoid repetition of article text. Focus on clarity and usefulness."},
-            {"role": "user", "content": f"Here are today's article summaries:\n{combined}\n\nProvide:\n1. A 200-word overall summary of today's markets and quant-relevant news.\n2. A bullet list of top quant takeaways.\n3. A 'Key Terms' section with important financial/quant terms."}
+            {"role": "system", "content": "Write a structured market briefing."},
+            {"role": "user", "content": f"Here are today's article summaries:\n{combined}\n\nProvide:\n1. ~200 word overview of the day’s most important financial and market news.\n2. A concise bullet list of key takeaways.\n3. A short 'Key Terms' glossary with definitions of important finance/quant terms mentioned. Avoid repetition of article text. Focus on clarity and usefulness."}
         ],
         max_tokens=500,
     )
     return chat.choices[0].message.content
 
-def generate_pdf(summaries, hot_list, overview):
+def generate_pdf(summaries, hot_list, overview, ai_summaries):
     """Make a nice PDF"""
     output_dir = os.path.join("quant-digest", "GeneratedDigests")
-    os.makedirs(output_dir, exist_ok=True)  # ensure folder exists
+    os.makedirs(output_dir, exist_ok=True)
 
     filename = os.path.join(
         output_dir, f"Quant Digest_{datetime.now().strftime('%Y-%m-%d')}.pdf"
@@ -111,7 +133,6 @@ def generate_pdf(summaries, hot_list, overview):
     styles = getSampleStyleSheet()
     story = []
 
-    # Custom styles
     hot_style = ParagraphStyle("HotStyle", parent=styles["Heading1"], textColor=colors.red)
     source_style = ParagraphStyle("SourceStyle", parent=styles["Normal"], textColor=colors.grey, fontSize=9)
 
@@ -119,9 +140,14 @@ def generate_pdf(summaries, hot_list, overview):
     story.append(Paragraph("Quant Daily Digest", styles["Title"]))
     story.append(Spacer(1, 12))
 
-    # HOT LIST
+    # Overview first
+    story.append(Paragraph("📊 Daily Overview", styles["Heading1"]))
+    story.append(Paragraph(overview, styles["BodyText"]))
+    story.append(Spacer(1, 12))
+
+    # Hot List
     if hot_list:
-        story.append(Paragraph("🔥 HOT LIST: Must-Know News", hot_style))
+        story.append(Paragraph("🔥 Hot List", hot_style))
         story.append(Spacer(1, 6))
         for title, summary, url, source in hot_list:
             story.append(Paragraph(f"<b>{title}</b>", styles["Heading2"]))
@@ -130,19 +156,27 @@ def generate_pdf(summaries, hot_list, overview):
             story.append(Paragraph(f"{source}", source_style))
             story.append(Spacer(1, 12))
 
-    # Overview
-    story.append(Paragraph("📊 Daily Overview", styles["Heading1"]))
-    story.append(Paragraph(overview, styles["BodyText"]))
-    story.append(Spacer(1, 12))
-
-    # Articles
+    # Articles (skip those already in hot list)
+    hot_titles = {h[0] for h in hot_list}
     story.append(Paragraph("📰 Articles", styles["Heading1"]))
     for title, summary, url, source in summaries:
+        if title in hot_titles:
+            continue
         story.append(Paragraph(f"<b>{title}</b>", styles["Heading2"]))
         story.append(Paragraph(summary, styles["BodyText"]))
         story.append(Paragraph(f"<font color='blue'>Read more: <u>{url}</u></font>", styles["Normal"]))
         story.append(Paragraph(f"{source}", source_style))
         story.append(Spacer(1, 12))
+
+    # AI & Finance section
+    if ai_summaries:
+        story.append(Paragraph("🤖 AI & Finance", styles["Heading1"]))
+        for title, summary, url, source in ai_summaries:
+            story.append(Paragraph(f"<b>{title}</b>", styles["Heading2"]))
+            story.append(Paragraph(summary, styles["BodyText"]))
+            story.append(Paragraph(f"<font color='blue'>Read more: <u>{url}</u></font>", styles["Normal"]))
+            story.append(Paragraph(f"{source}", source_style))
+            story.append(Spacer(1, 12))
 
     doc.build(story)
     return filename
@@ -174,8 +208,8 @@ def send_email(file_path):
 
 if __name__ == "__main__":
     articles = fetch_news()
-    summaries, hot_list = summarize_articles(articles)
+    summaries, hot_list, ai_summaries = summarize_articles(articles)
     overview = overall_summary(summaries)
-    pdf = generate_pdf(summaries, hot_list, overview)
+    pdf = generate_pdf(summaries, hot_list, overview, ai_summaries)
     send_email(pdf)
     print(f"Generated {pdf}")
