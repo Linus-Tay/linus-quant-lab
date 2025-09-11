@@ -696,13 +696,13 @@ def send_email(file_path):
         return
 
     sender = EMAIL
-    recipient = EMAIL
+    recipients = [EMAIL, EMAIL2]
     subject = "Your Quant Daily Digest"
     body = "Attached is today's quant digest PDF."
 
     msg = MIMEMultipart()
     msg['From'] = sender
-    msg['To'] = recipient
+    msg['To'] = ", ".join(recipients) 
     msg['Subject'] = subject
     msg.attach(MIMEText(body, 'plain'))
 
@@ -717,7 +717,7 @@ def send_email(file_path):
         server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
         server.login(sender, PASSWORD)
-        server.sendmail(sender, recipient, msg.as_string())
+        server.sendmail(sender, recipients, msg.as_string())
         server.quit()
         print(f"[OK] Email sent to {recipient}")
     except Exception as e:
