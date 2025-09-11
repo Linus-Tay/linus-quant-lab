@@ -40,7 +40,7 @@ EMAIL = os.getenv("EMAIL", "").strip()
 EMAIL2 = os.getenv("EMAIL2", "").strip()
 PASSWORD = os.getenv("PASSWORD", "").strip()
 RESEARCH_TOP_N = 10
-
+print("EMAIL2 =", repr(EMAIL2))
 # Optional calendar feeds (comma-separated .ics URLs). If empty, calendar lane skips.
 CALENDAR_ICS_URLS = "https://www.bls.gov/schedule/news_release/bls.ics,https://tradingeconomics.com/calendar/ics/united-states"
 SUMMARY_MODEL = "gpt-4.1-mini"     # cheap & capable; you can swap to "gpt-4o-mini"
@@ -692,6 +692,63 @@ def generate_pdf(summaries, hot_list, overview, ai_summaries,
 # Email
 # ─────────────────────────────────────────────────────────────────────────────
 def send_email(file_path):
+    if not EMAIL or not PASSWORD:
+        print("[WARN] EMAIL or PASSWORD missing — skipping email send.")
+        return
+
+    sender = EMAIL
+    # Use app password with no spaces
+    app_pw = PASSWORD.replace(" ", "")
+
+    # Build a clean recipient list (skip blanks/whitespace)
+    recipients = [r.strip() for r in [EMAIL, EMAIL2] if r and r.strip()]
+    if not recipients:
+        print("[WARN] No valid recipients found — skipping email send.")
+        return
+
+    subject = "Your Quant Daily Digest"
+    body = "Attached is today's quant digest PDF."
+
+    msg = MIMEMultipart()
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)  # header (display only)
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
+
+    with open(file_path, "rb") as f:
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(f.read())
+        encoders.encode_base64(part)
+        part.add_header(
+            "Content-Disposition",
+            f'attachment; filename="{os.path.basename(file_path)}"'
+        )
+        msg.attach(part)
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as server:
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(sender, app_pw)
+            refused = server.sendmail(sender, recipients, msg.as_string())
+
+        if refused:
+            # Dict of { "bad@addr": (code, b"message"), ... }
+            print(f"[WARN] Some recipients were refused: {refused}")
+            delivered = [r for r in recipients if r not in refused]
+            if delivered:
+                print(f"[OK] Delivered to: {', '.join(delivered)}")
+        else:
+            print(f"[OK] Email sent to: {', '.join(recipients)}")
+
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"[ERR] Gmail auth failed (check app password): {e}")
+    except smtplib.SMTPRecipientsRefused as e:
+        print(f"[ERR] All recipients refused: {e.recipients}")
+    except Exception as e:
+        print(f"[ERR] SMTP error: {e}")
+
     if not EMAIL or not PASSWORD:
         print("[WARN] EMAIL or PASSWORD missing — skipping email send.")
         return
