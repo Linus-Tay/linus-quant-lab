@@ -697,30 +697,51 @@ def send_email(file_path):
         return
 
     sender = EMAIL
-    recipients = [EMAIL, EMAIL2]
+
+    # Build a clean recipient list (skip blanks/None)
+    raw_recipients = [EMAIL, EMAIL2]
+    recipients = [r.strip() for r in raw_recipients if r and r.strip()]
+    if not recipients:
+        print("[WARN] No valid recipients found — skipping email send.")
+        return
+
     subject = "Your Quant Daily Digest"
     body = "Attached is today's quant digest PDF."
 
     msg = MIMEMultipart()
-    msg['From'] = sender
-    msg['To'] = ", ".join(recipients) 
-    msg['Subject'] = subject
-    msg.attach(MIMEText(body, 'plain'))
+    msg["From"] = sender
+    msg["To"] = ", ".join(recipients)   # header only (for display)
+    msg["Subject"] = subject
+    msg.attach(MIMEText(body, "plain"))
 
     with open(file_path, "rb") as f:
-        part = MIMEBase('application', 'octet-stream')
+        part = MIMEBase("application", "octet-stream")
         part.set_payload(f.read())
         encoders.encode_base64(part)
-        part.add_header('Content-Disposition', f'attachment; filename={os.path.basename(file_path)}')
+        part.add_header(
+            "Content-Disposition",
+            f'attachment; filename="{os.path.basename(file_path)}"'
+        )
         msg.attach(part)
 
     try:
         server = smtplib.SMTP("smtp.gmail.com", 587)
+        server.ehlo()
         server.starttls()
+        server.ehlo()
         server.login(sender, PASSWORD)
-        server.sendmail(sender, recipients, msg.as_string())
+        errors = server.sendmail(sender, recipients, msg.as_string())
         server.quit()
-        print(f"[OK] Email sent to {recipient}")
+
+        if errors:
+            # errors is a dict: { "bad@addr": (code, b"message"), ... }
+            print(f"[WARN] Some recipients were refused: {errors}")
+            delivered = [r for r in recipients if r not in errors]
+            if delivered:
+                print(f"[OK] Email delivered to: {', '.join(delivered)}")
+        else:
+            print(f"[OK] Email sent to: {', '.join(recipients)}")
+
     except Exception as e:
         print(f"[WARN] Failed to send email: {e}")
 
