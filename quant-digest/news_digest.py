@@ -37,6 +37,7 @@ load_dotenv()
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "").strip()
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 EMAIL = os.getenv("EMAIL", "").strip()
+EMAIL2 = os.getenv("EMAIL2", "").strip()
 PASSWORD = os.getenv("PASSWORD", "").strip()
 RESEARCH_TOP_N = 10
 
