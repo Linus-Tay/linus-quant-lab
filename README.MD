@@ -53,8 +53,3 @@ The **Quant Digest** runs daily at **07:00 SGT** (scheduled via GitHub Actions a
    - **📘 Weekly Deep Dive** (Sundays UTC: 1 paper in 150–250 words).
    - **📚 Quant Keywords & Mini-Glossary** (plain-English one-liners with a small “core” fallback).
 4. **Outputs** the PDF to `quant-digest/GeneratedDigests/`, commits it (if changed), uploads as an artifact, and optionally **emails** it to you.
-
-### Configuration
-Set as repo **secrets** or local **env vars**:
-
-
