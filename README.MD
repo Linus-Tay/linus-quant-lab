@@ -24,6 +24,16 @@ This lab is split into multiple explorations:
 - **Quant Digest (Daily News Brief)**  
   - A fully automated financial news digest (see below).  
 
+- **Quant Notes**  
+  - Short reflections on concepts from Hull, Shreve, Joshi, and other quant texts.  
+  - Each note is light and structured around a few quick questions:  
+    - **What clicked?** (the core idea in my own words)  
+    - **What was tough?** (concepts I struggled with, need to revisit)  
+    - **Takeaway?** (the one-liner worth remembering)  
+    - *(Optional)* **How I applied it?** (quick code, payoff diagram, or example)  
+
+  These are not full summaries — just snapshots of how I internalized a concept and reminders of where to revisit later.
+
 ---
 
 ## 📰 Quant Digest
