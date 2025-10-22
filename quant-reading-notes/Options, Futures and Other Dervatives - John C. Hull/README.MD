@@ -47,3 +47,16 @@ It was challenging to fully grasp Hull’s explanations here. For example, when 
 Futures differ from forwards mainly because of **daily settlement, standardization, and the role of clearing houses/CCPs**. These features reduce credit risk but also introduce daily cash flow considerations — making futures both more secure and more dynamic than forwards.  
 
 ---
+
+## 📖 Chapter 3: Hedging Strategies Using Futures
+
+**1. What clicked?**  
+I had always heard about hedging, but now I have a much better understanding of what it actually means. The purpose of hedging is to mitigate risk to the fullest extent possible against fluctuations in the price of goods, foreign exchange rates, and the level of the stock market. A particular point that I took to heart was that hedging is not always the right play. In a market where you might have competitors who are not hedging, you stand to lose out on profits and also deal with the same downside as they do. The strategies discussed were really intriguing and overall, I liked this chapter very much. 
+
+**2. What was tough?**  
+At times, I had to double back on the formulas presented, as I wanted to memorize them, but I realized that it is not about memorization but rather understanding. When calculating the minimum variance hedge ratio, if you understand the math but not the relationship that the value shows you regarding changes in the spot and futures prices, then there is no point at all. Hence, although grasping the mathematical concept was slightly challenging, pairing it with the logic behind the math made it more comprehensible.
+
+**3. Takeaway**  
+Calculations such as variance, measuring beta, or even comparing your portfolio against the market are performed to ensure that you get as close to the perfect hedge as possible are interesting and necessary. However, just because you get the perfect hedge does not mean you get the best possible outcome.
+
+---
