@@ -60,3 +60,14 @@ At times, I had to double back on the formulas presented, as I wanted to memoriz
 Calculations such as variance, measuring beta, or even comparing your portfolio against the market are performed to ensure that you get as close to the perfect hedge as possible are interesting and necessary. However, just because you get the perfect hedge does not mean you get the best possible outcome.
 
 ---
+
+## 📖 Chapter 4: Interest Rates
+
+**1. What clicked?**  
+Through this chapter, I realised there are many more underlying considerations when it comes to interest rates, such as whether it is compounded and the frequency of compounding. However, what I really enjoyed learning about was bonds and their pricing, as I never really understood them until I read this chapter.
+
+**2. What was tough?**  
+Comprehending the differences between zero rates, forward rates, and forward rate agreements was quite challenging. To really be able to pinpoint the exact differences and know them by heart was challenging for me.
+
+**3. Takeaway**  
+All in all, I know interest rates and the relevant durations greatly affect the prices of bonds. Moreover, the convexity of a bond is what is important to really understand what happens to a bond over a duration of time.
