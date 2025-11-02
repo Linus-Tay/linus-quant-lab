@@ -71,3 +71,16 @@ Comprehending the differences between zero rates, forward rates, and forward rat
 
 **3. Takeaway**  
 All in all, I know interest rates and the relevant durations greatly affect the prices of bonds. Moreover, the convexity of a bond is what is important to really understand what happens to a bond over a duration of time.
+
+---
+
+## 📖 Chapter 5:  Determination of Forward and Futures Prices
+
+**1. What clicked?**
+Differences in forward and future prices can lead to many opportunities for arbitrageurs. However, to know exactly when you have an arbitrage opportunity, you would need to be able to determine the different kinds of investment assets as well as the situation (for example, whether it provides a known dollar income, yield, or does not provide income). This chapter was all about that, and it was intriguing to see the way that these would determine the relevant formulas to calculate arbitrage opportunities for future prices against forward prices.
+
+**2. What was tough?**
+Nothing was particularly challenging, but I had to spend more time on understanding and absorbing the exact differences between all the different variables that could affect the determination of a future price.
+
+**3. Takeaway**
+There might be some situations which may seem like arbitrage opportunities, but that is when you must always remember to take into consideration the cost of carry as well as possible storage fees.
